@@ -3,7 +3,6 @@ uvicorn[standard]>=0.29
 python-multipart
 torch>=2.2
 torchvision
-ultralytics
 transformers>=4.40
 sam2
 Pillow
