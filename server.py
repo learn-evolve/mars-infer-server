@@ -120,11 +120,19 @@ async def infer_gdino_sam2(
         outputs = _gdino_model(**inputs)
     gdino_ms = round((time.time() - t) * 1000, 1)
 
-    results = _gdino_proc.post_process_grounded_object_detection(
-        outputs, inputs["input_ids"],
-        box_threshold=box_threshold, text_threshold=text_threshold,
-        target_sizes=[(h, w)],
-    )[0]
+    # transformers ≥4.45 renamed box_threshold/text_threshold → threshold
+    try:
+        results = _gdino_proc.post_process_grounded_object_detection(
+            outputs, inputs["input_ids"],
+            box_threshold=box_threshold, text_threshold=text_threshold,
+            target_sizes=[(h, w)],
+        )[0]
+    except TypeError:
+        results = _gdino_proc.post_process_grounded_object_detection(
+            outputs, inputs["input_ids"],
+            threshold=box_threshold,
+            target_sizes=[(h, w)],
+        )[0]
 
     scores = results["scores"].cpu().numpy()
     labels = results["labels"]
