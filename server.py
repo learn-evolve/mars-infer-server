@@ -174,5 +174,54 @@ async def infer_gdino_sam2(
     })
 
 
+@app.post("/infer/sam2_bbox")
+async def infer_sam2_bbox(
+    image:  UploadFile = File(...),
+    bboxes: str        = Form(...),   # JSON array of [x1,y1,x2,y2] lists
+    labels: str        = Form("[]"),  # optional JSON array of label strings
+):
+    """SAM2-only segmentation with caller-provided bounding boxes (skips GDINO)."""
+    if _sam2_model is None:
+        raise HTTPException(503, "SAM2 not loaded")
+
+    img_bgr = _decode_image(await image.read())
+    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    h, w    = img_bgr.shape[:2]
+
+    bbox_list  = json.loads(bboxes)
+    label_list = json.loads(labels)
+
+    detections = []
+    t = time.time()
+    with torch.inference_mode():
+        _sam2_model.set_image(img_rgb)
+        for i, bbox in enumerate(bbox_list):
+            label = label_list[i] if i < len(label_list) else ""
+            box_np = np.array(bbox, dtype=np.float32)
+            masks, seg_scores, _ = _sam2_model.predict(box=box_np, multimask_output=False)
+            mask = masks[0].astype(np.uint8)
+            poly, area = _mask_to_polygon(mask)
+            detections.append({
+                "id":           i,
+                "label":        label,
+                "confidence":   1.0,
+                "bbox_xyxy":    [int(v) for v in bbox],
+                "mask_polygon": poly,
+                "mask_area_px": area,
+                "iou_score":    float(seg_scores[0]),
+            })
+    sam2_ms = round((time.time() - t) * 1000, 1)
+
+    return JSONResponse({
+        "ok":           True,
+        "gdino_ms":     0,
+        "sam2_ms":      sam2_ms,
+        "inference_ms": sam2_ms,
+        "image_shape":  [h, w],
+        "n_detections": len(detections),
+        "detections":   detections,
+    })
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")
